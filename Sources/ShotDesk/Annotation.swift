@@ -85,9 +85,25 @@ enum AnnotationRenderer {
         return rep.cgImage ?? image
     }
 
-    /// 箭头 = 一条线 + 实心三角箭头。箭头大小跟着线宽走，细线配小头才协调。
-    static func drawArrow(from: CGPoint, to: CGPoint, lineWidth: CGFloat) {
+    /// 长距离拖拽也只保留短尾部，使箭头更像“这里”的示意，而非连接两点的长线。
+    static func shortTailStart(from: CGPoint, to: CGPoint, lineWidth: CGFloat,
+                               maximumTailLength: CGFloat = 26) -> CGPoint {
         let dx = to.x - from.x, dy = to.y - from.y
+        let length = hypot(dx, dy)
+        guard length > 1 else { return from }
+
+        let headLength = min(max(lineWidth * 4, 10), length * 0.5)
+        let maximumVisibleLength = maximumTailLength + headLength
+        guard length > maximumVisibleLength else { return from }
+
+        let ratio = maximumVisibleLength / length
+        return CGPoint(x: to.x - dx * ratio, y: to.y - dy * ratio)
+    }
+
+    /// 箭头 = 短尾部引导线 + 实心三角箭头。箭头大小跟着线宽走，细线配小头才协调。
+    static func drawArrow(from: CGPoint, to: CGPoint, lineWidth: CGFloat) {
+        let visibleFrom = shortTailStart(from: from, to: to, lineWidth: lineWidth)
+        let dx = to.x - visibleFrom.x, dy = to.y - visibleFrom.y
         let length = sqrt(dx * dx + dy * dy)
         guard length > 1 else { return }
 
@@ -101,7 +117,7 @@ enum AnnotationRenderer {
         let shaft = NSBezierPath()
         shaft.lineWidth = lineWidth
         shaft.lineCapStyle = .round
-        shaft.move(to: from)
+        shaft.move(to: visibleFrom)
         shaft.line(to: shaftEnd)
         shaft.stroke()
 
