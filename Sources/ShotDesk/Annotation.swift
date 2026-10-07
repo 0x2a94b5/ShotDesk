@@ -94,10 +94,10 @@ enum AnnotationRenderer {
 
         let unit = CGPoint(x: dx / length, y: dy / length)
         let perpendicular = CGPoint(x: -unit.y, y: unit.x)
-        // 接近微信截图的细长比例：头部不随长箭头无限放大，视觉重心放在指向而非箭头本身。
-        let headLength = min(max(lineWidth * 5, 14), max(length * 0.18, lineWidth * 2))
-        let headHalfWidth = min(headLength * 0.45, max(lineWidth * 2.3, 6))
-        let neckHalfWidth = min(lineWidth * 0.8, headHalfWidth * 0.45)
+        // 微信截图式的中间比例：头部清晰但不过分夸张，箭身接入处略宽以消除折肩感。
+        let headLength = min(max(lineWidth * 6.7, 18), max(length * 0.16, lineWidth * 2))
+        let headHalfWidth = min(headLength * 0.5, max(lineWidth * 3, 8))
+        let neckHalfWidth = min(lineWidth * 1.15, headHalfWidth * 0.48)
         let headBase = CGPoint(x: to.x - unit.x * headLength, y: to.y - unit.y * headLength)
 
         return [

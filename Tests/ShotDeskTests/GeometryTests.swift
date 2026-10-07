@@ -86,6 +86,6 @@ final class GeometryTests: XCTestCase {
             from: CGPoint(x: 0, y: 0), to: CGPoint(x: 100, y: 0), lineWidth: 3
         )
 
-        XCTAssertEqual(points[2].x, 85, accuracy: 0.001)
+        XCTAssertEqual(points[2].x, 84, accuracy: 0.001)
     }
 }
