@@ -8,27 +8,47 @@ final class RegionSelector {
     /// 每块屏幕一个窗口。单个 NSWindow 横跨多块显示器时，只能拥有一个 Space、
     /// screen 和 backingScaleFactor，在混合 Retina 双屏下会导致部分屏幕无法交互。
     private var overlays: [OverlayWindow] = []
-    /// 覆盖层隐藏后到系统完成合成前，禁止再发起一次框选；否则新覆盖层可能进入上一张截图。
-    private var isFinalizingFreeCapture = false
 
     private init() {}
 
-    var isActive: Bool { !overlays.isEmpty || isFinalizingFreeCapture }
+    var isActive: Bool { !overlays.isEmpty }
 
     // MARK: - 全屏自由框选，可标注，回车抓图
 
     func beginFreeCapture(completion: @escaping (CGImage?) -> Void) {
-        guard overlays.isEmpty, !isFinalizingFreeCapture else { return }
+        guard overlays.isEmpty else { return }
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
             completion(nil)
             return
         }
 
-        for screen in screens {
+        // 热键触发后的第一个动作就是冻结各屏内容。TradingView 的日期提示等临时
+        // UI 常在应用失焦时收起，若等用户完成框选后再抓，已经无法包含它们。
+        let snapshots = screens.compactMap { screen -> (screen: NSScreen, image: CGImage)? in
+            let fullRect = Geometry.screenLocalToCG(
+                CGRect(origin: .zero, size: screen.frame.size), on: screen
+            ).integral
+            guard let image = CGWindowListCreateImage(fullRect,
+                                                      .optionOnScreenOnly,
+                                                      kCGNullWindowID,
+                                                      [.bestResolution]) else {
+                return nil
+            }
+            return (screen, image)
+        }
+        guard snapshots.count == screens.count else {
+            completion(nil)
+            return
+        }
+
+        for snapshot in snapshots {
+            let screen = snapshot.screen
+            let backdrop = snapshot.image
             let view = SelectionView(frame: CGRect(origin: .zero, size: screen.frame.size))
             view.showsCrosshair = true
             view.allowsAnnotation = true
+            view.backdrop = NSImage(cgImage: backdrop, size: screen.frame.size)
             _ = present(view: view, frame: screen.frame, activate: false)
 
             view.onFinish = { [weak self] result in
@@ -39,27 +59,21 @@ final class RegionSelector {
                     return
                 }
 
-                // 先隐藏非激活覆盖层，并等下一次界面合成再抓屏幕。
-                // 这样右键菜单、下拉框和 popover 不会因 ShotDesk 抢焦点而关闭，也能
-                // 出现在成图中；同时 ShotDesk 自己的压暗层、选框和工具栏不会进图。
-                let cgRect = Geometry.screenLocalToCG(rect, on: screen).integral
-                self.isFinalizingFreeCapture = true
+                // 从热键瞬间冻结的底图裁剪，而不是现在再抓一次屏幕。这样即使临时
+                // 弹窗已在框选期间收起，最终图片仍保留它；ShotDesk 覆盖层也不可能入图。
+                let pixelRect = Geometry.screenLocalToImagePixels(
+                    rect, screenSize: screen.frame.size,
+                    imageSize: CGSize(width: backdrop.width, height: backdrop.height)
+                )
+                let shot = backdrop.cropping(to: pixelRect)
                 self.dismiss()
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    let shot = CGWindowListCreateImage(cgRect,
-                                                       .optionOnScreenOnly,
-                                                       kCGNullWindowID,
-                                                       [.bestResolution])
-                    self.isFinalizingFreeCapture = false
-
-                    guard let shot = shot else {
-                        completion(nil)
-                        return
-                    }
-                    // 标注不在底图里，在这里按当前屏幕的实际倍率重画一遍合成上去。
-                    completion(AnnotationRenderer.render(annotations, onto: shot, selection: rect))
+                guard let shot = shot else {
+                    completion(nil)
+                    return
                 }
+                // 标注不在底图里，在这里按当前屏幕的实际倍率重画一遍合成上去。
+                completion(AnnotationRenderer.render(annotations, onto: shot, selection: rect))
             }
         }
 
@@ -145,6 +159,8 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
     var onFinish: (((CGRect, [Annotation]))?) -> Void = { _ in }
     var showsCrosshair = false
     var allowsAnnotation = false
+    /// 热键按下瞬间的屏幕快照，既让用户看到冻结底图，也保留会立刻消失的临时 UI。
+    var backdrop: NSImage?
     var hint = "拖拽框选区域 · Esc 取消"
     var confirmHint = "回车截图 · 拖动边角调整 · 框外重新拖拽可重选 · Esc 取消"
 
@@ -573,6 +589,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current else { return }
 
+        backdrop?.draw(in: bounds)
         NSColor.black.withAlphaComponent(0.35).setFill()
         bounds.fill()
 
@@ -582,11 +599,18 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
             return
         }
 
-        // 在压暗层上挖出选区，让下面的内容原样可见
-        ctx.saveGraphicsState()
-        ctx.compositingOperation = .clear
-        rect.fill()
-        ctx.restoreGraphicsState()
+        // 在压暗层上恢复冻结底图中的选区。没有冻结底图时才退回透明挖洞。
+        if let backdrop = backdrop {
+            ctx.saveGraphicsState()
+            NSBezierPath(rect: rect).addClip()
+            backdrop.draw(in: bounds)
+            ctx.restoreGraphicsState()
+        } else {
+            ctx.saveGraphicsState()
+            ctx.compositingOperation = .clear
+            rect.fill()
+            ctx.restoreGraphicsState()
+        }
 
         // 标注预览（最终成图由 AnnotationRenderer 按 Retina 倍率重画）
         ctx.saveGraphicsState()

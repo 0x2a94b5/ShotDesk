@@ -35,4 +35,19 @@ enum Geometry {
                                screenFrame: screen.frame,
                                primaryMaxY: primary.frame.maxY)
     }
+
+    /// 将一块屏幕内的逻辑点坐标映射为该屏幕冻结底图的像素坐标。
+    /// 截屏底图可能是 Retina 倍率，也可能是普通倍率，因此 x/y 分别按实际像素尺寸换算。
+    static func screenLocalToImagePixels(_ rect: CGRect,
+                                         screenSize: CGSize,
+                                         imageSize: CGSize) -> CGRect {
+        guard screenSize.width > 0, screenSize.height > 0 else { return .zero }
+        let scaleX = imageSize.width / screenSize.width
+        let scaleY = imageSize.height / screenSize.height
+        let pixels = CGRect(x: rect.minX * scaleX,
+                            y: rect.minY * scaleY,
+                            width: rect.width * scaleX,
+                            height: rect.height * scaleY).integral
+        return pixels.intersection(CGRect(origin: .zero, size: imageSize))
+    }
 }

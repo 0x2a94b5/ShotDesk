@@ -42,4 +42,24 @@ final class GeometryTests: XCTestCase {
 
         XCTAssertEqual(result, CGRect(x: -1880, y: -150, width: 500, height: 400))
     }
+
+    func testScreenLocalRectMapsToRetinaSnapshotPixels() {
+        let result = Geometry.screenLocalToImagePixels(
+            CGRect(x: 100, y: 50, width: 640, height: 360),
+            screenSize: CGSize(width: 1440, height: 900),
+            imageSize: CGSize(width: 2880, height: 1800)
+        )
+
+        XCTAssertEqual(result, CGRect(x: 200, y: 100, width: 1280, height: 720))
+    }
+
+    func testScreenLocalRectIsClampedToSnapshotBounds() {
+        let result = Geometry.screenLocalToImagePixels(
+            CGRect(x: 1900, y: 1000, width: 100, height: 100),
+            screenSize: CGSize(width: 1920, height: 1080),
+            imageSize: CGSize(width: 1920, height: 1080)
+        )
+
+        XCTAssertEqual(result, CGRect(x: 1900, y: 1000, width: 20, height: 80))
+    }
 }
