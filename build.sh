@@ -1,5 +1,5 @@
 #!/bin/bash
-# 构建 ShotDesk.app（不依赖 Xcode GUI）
+# Builds ShotDesk.app without the Xcode GUI.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -35,8 +35,8 @@ cp ".build/release/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 cp "Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ICON_OUTPUT" "$APP/Contents/Resources/AppIcon.icns"
 
-# 有自签名证书就用证书签（授权绑证书，重新编译不掉权限），
-# 没有就退回 ad-hoc（授权绑二进制哈希，每次重新编译都要重新授权）
+# Prefer the self-signed certificate so Screen Recording permission can remain
+# associated with the signing identity; otherwise fall back to ad-hoc signing.
 CERT_NAME="ShotDesk Dev"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT_NAME"; then
     echo "==> 签名 (证书: $CERT_NAME)"
@@ -49,14 +49,14 @@ else
 fi
 codesign -dv "$APP" 2>&1 | grep -E "Identifier|Signature|Authority" || true
 
-# 构建和安装明确分开，避免普通构建意外覆盖正在使用的版本。
+# Keep build and install separate to avoid accidentally replacing a running copy.
 INSTALLED="$HOME/Applications/$APP_NAME.app"
 if [ "$INSTALL" = true ]; then
     echo "==> 安装到 ~/Applications"
     rm -rf "$INSTALLED"
     mkdir -p "$HOME/Applications"
     cp -R "$APP" "$INSTALLED"
-    # Finder/Launchpad 有时不认新图标，碰一下时间戳催它刷新
+    # Finder and Launchpad sometimes need a timestamp change to refresh the icon.
     touch "$INSTALLED"
     echo "    $INSTALLED"
 fi

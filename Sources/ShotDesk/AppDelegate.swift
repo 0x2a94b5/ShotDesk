@@ -4,16 +4,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var config = AppConfig.standard
     private var statusItem: NSStatusItem!
     private var flashWorkItem: DispatchWorkItem?
-    /// 和系统快捷键撞车的目标，要在菜单里明示
+    /// Targets whose shortcuts conflict with system shortcuts and must be shown in the menu.
     private var hotKeyConflicts: [String] = []
 
     private let idleSymbol = "camera.viewfinder"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         config = ConfigStore.load()
-        ConfigStore.save(config) // 首次运行落一份可手改的配置
+        ConfigStore.save(config) // Create a hand-editable configuration on first launch.
 
-        // 权限状态在进程生命周期内不刷新，启动时记一笔方便排查
+        // The permission state does not refresh during a process lifetime; log it at launch.
         NSLog("ShotDesk: 启动，屏幕录制权限 = %@",
               CGPreflightScreenCaptureAccess() ? "已授权" : "未授权")
 
@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKeys()
     }
 
-    // MARK: - 菜单
+    // MARK: - Menu
 
     private func rebuildMenu() {
         let menu = NSMenu()
@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
         }
 
-        // 手动框选是主力路径，放在最上面
+        // Manual region selection is the primary path, so keep it at the top.
         let region = NSMenuItem(title: "框选截图", action: #selector(regionCaptureAction),
                                 keyEquivalent: "")
         region.target = self
@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
 
-    // MARK: - 热键
+    // MARK: - Hot keys
 
     private func registerHotKeys() {
         HotKeyCenter.shared.unregisterAll()
@@ -138,8 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // 注册成功不代表组合可用：系统快捷键会先吃掉按键，我们的 handler 根本不会触发。
-        // 所以要主动和系统快捷键表比对，撞车了明确告诉用户。
+        // Successful registration does not make a combination usable: system
+        // shortcuts receive the event first. Detect and report conflicts explicitly.
         var checkTargets = config.targets
         if let spec = config.regionHotKey {
             checkTargets.append(CaptureTarget(id: "region", label: "框选截图", hotKey: spec))
@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         """)
     }
 
-    // MARK: - 动作
+    // MARK: - Actions
 
     @objc private func regionCaptureAction() {
         beginRegionCapture()
@@ -175,7 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         RegionSelector.shared.beginFreeCapture { [weak self] image in
             guard let self = self else { return }
-            guard let image = image else { return }   // Esc 取消，不打扰
+            guard let image = image else { return }   // Esc cancels quietly.
             Clipboard.put(image)
             if self.config.saveToDisk {
                 Clipboard.saveToDisk(image, targetID: "region",
@@ -226,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // 先把目标窗口顶上来，用户才框得准
+        // Bring the target window forward so the user can select it accurately.
         NSRunningApplication(processIdentifier: match.ownerPID)?
             .activate(options: [.activateIgnoringOtherApps])
 
@@ -283,10 +283,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: - 反馈
+    // MARK: - Feedback
 
-    /// 不用通知中心：那会多一个权限弹窗和一条常驻连接。
-    /// 改用 快门音 + 图标变化 + 菜单栏文字，三重反馈确保注意得到。
+    /// Avoid Notification Center because it adds a permission prompt and a
+    /// persistent connection. Use shutter sound, icon changes, and menu-bar text instead.
     private func flash(success: Bool, note: String?, size: CGSize? = nil) {
         if let size = size {
             statusItem.button?.toolTip =
@@ -326,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if offerRestart, response == .alertFirstButtonReturn { relaunch() }
     }
 
-    /// 授权后必须重启进程权限才生效，省得用户自己退出再打开
+    /// Restart after granting permission so the new state takes effect immediately.
     private func relaunch() {
         let path = Bundle.main.bundlePath
         let task = Process()

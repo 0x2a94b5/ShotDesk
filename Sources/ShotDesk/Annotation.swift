@@ -6,9 +6,9 @@ enum AnnotationTool {
 
 struct Annotation {
     enum Kind {
-        case rect(CGRect)                          // 视图坐标（左上原点）
+        case rect(CGRect)                          // View coordinates (top-left origin)
         case arrow(from: CGPoint, to: CGPoint)
-        case text(String, at: CGPoint)             // at = 文字左上角
+        case text(String, at: CGPoint)             // `at` is the text's top-left corner
     }
     var kind: Kind
     var color: NSColor
@@ -16,9 +16,9 @@ struct Annotation {
     var fontSize: CGFloat
 }
 
-/// 把标注合成到抓下来的图上。
-/// 覆盖层的内容不会进到截图里（抓的是覆盖层**底下**的画面），
-/// 所以标注必须在这里重画一遍——好处是能按 Retina 倍率画，线条是清晰的矢量结果。
+/// Composites annotations onto a captured image.
+/// The overlay is excluded from the capture, so annotations are redrawn here at
+/// the Retina scale for crisp vector output.
 enum AnnotationRenderer {
 
     static func render(_ annotations: [Annotation],
@@ -42,9 +42,9 @@ enum AnnotationRenderer {
         ctx.cgContext.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         ctx.shouldAntialias = true
 
-        // 视图是左上原点，位图是左下原点，这里做一次显式换算。
-        // 不翻转 CTM 的原因：AppKit 文字绘制看的是上下文的 flipped 标志而不是 CTM，
-        // 翻了 CTM 文字会上下颠倒。
+        // Views use a top-left origin while bitmaps use a bottom-left origin.
+        // Do not flip the CTM: AppKit text follows the context's flipped flag and
+        // would render upside down.
         func map(_ p: CGPoint) -> CGPoint {
             CGPoint(x: (p.x - selection.minX) * scale,
                     y: (selection.maxY - p.y) * scale)
@@ -76,7 +76,8 @@ enum AnnotationRenderer {
                 ]
                 let str = NSAttributedString(string: s, attributes: attrs)
                 let origin = map(at)
-                // map 给的是文字左上角在位图里的位置，draw(at:) 要的是左下角
+                // `map` returns the bitmap position of the text's top-left corner;
+                // `draw(at:)` expects its bottom-left corner.
                 str.draw(at: CGPoint(x: origin.x, y: origin.y - str.size().height))
             }
         }
@@ -85,8 +86,9 @@ enum AnnotationRenderer {
         return rep.cgImage ?? image
     }
 
-    /// 尖尾、渐宽、实心的示意箭头。尾端和箭头尖端严格跟随用户拖拽的两端，
-    /// 中间的箭身逐渐变宽，避免普通线箭头显得像连接线。
+    /// A solid callout arrow with a pointed tail and a gradually widening body.
+    /// Its endpoints exactly match the user's drag endpoints, avoiding the look
+    /// of a conventional connector line.
     static func taperedArrowPoints(from: CGPoint, to: CGPoint, lineWidth: CGFloat) -> [CGPoint] {
         let dx = to.x - from.x, dy = to.y - from.y
         let length = hypot(dx, dy)
@@ -94,7 +96,8 @@ enum AnnotationRenderer {
 
         let unit = CGPoint(x: dx / length, y: dy / length)
         let perpendicular = CGPoint(x: -unit.y, y: unit.x)
-        // 微信截图式的中间比例：头部清晰但不过分夸张，箭身接入处略宽以消除折肩感。
+        // Balanced callout proportions: a clear, compact head and a slightly
+        // wider neck to avoid an abrupt shoulder.
         let headLength = min(max(lineWidth * 6.7, 18), max(length * 0.16, lineWidth * 2))
         let headHalfWidth = min(headLength * 0.5, max(lineWidth * 3, 8))
         let neckHalfWidth = min(lineWidth * 1.15, headHalfWidth * 0.48)
@@ -114,7 +117,7 @@ enum AnnotationRenderer {
         ]
     }
 
-    /// 箭头 = 尖尾渐宽箭身 + 实心箭头，长度可随拖拽自由拉伸。
+    /// A pointed, tapered body plus a solid head; its length follows the drag.
     static func drawArrow(from: CGPoint, to: CGPoint, lineWidth: CGFloat) {
         let points = taperedArrowPoints(from: from, to: to, lineWidth: lineWidth)
         guard let first = points.first else { return }

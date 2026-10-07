@@ -1,6 +1,6 @@
 #!/bin/bash
-# 创建一个自签名代码签名证书，让屏幕录制授权绑在证书上而不是二进制哈希上。
-# 配好之后重新编译 ShotDesk 不会再让授权失效。只需要跑一次。
+# Creates a self-signed code-signing certificate so Screen Recording permission
+# can be tied to the signing identity rather than a binary hash. Run once.
 set -euo pipefail
 
 CERT_NAME="ShotDesk Dev"
@@ -13,12 +13,12 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT_NAME"; 
     exit 0
 fi
 
-# 私钥落在临时目录，结束后立刻删除
+# Keep the private key in a temporary directory and remove it on exit.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> 生成自签名证书"
-# 系统自带的是 LibreSSL，不支持 -addext，只能用配置文件写扩展
+# The bundled LibreSSL lacks -addext, so extensions are written in a config file.
 cat > "$WORK/cfg" <<EOF
 [ req ]
 distinguished_name = dn
@@ -37,8 +37,8 @@ EOF
     -keyout "$WORK/key.pem" -out "$WORK/cert.pem" \
     -config "$WORK/cfg" -extensions v3 >/dev/null 2>&1
 
-# 不能用空密码：LibreSSL 导出的空密码 p12，macOS Security 框架验不过 MAC
-# (空密码在 PKCS#12 里有 空字符串 vs NULL 的编码歧义，两边实现不一致)
+# Do not use an empty password: LibreSSL-exported PKCS#12 files with one fail
+# macOS Security MAC validation because empty-string and NULL encodings differ.
 P12PASS="$(/usr/bin/openssl rand -hex 16)"
 /usr/bin/openssl pkcs12 -export -out "$WORK/cert.p12" \
     -inkey "$WORK/key.pem" -in "$WORK/cert.pem" \

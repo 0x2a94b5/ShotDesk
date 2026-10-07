@@ -1,19 +1,19 @@
 import AppKit
 
-/// 拖拽框选层。两种用法：
-/// 1. `beginFreeCapture` —— 铺满所有显示器，框选 → 标注 → 回车抓图（手动截图主力路径）
-/// 2. `begin(over:)`     —— 盖在某个窗口上，框出的区域存成该窗口的归一化预设
+/// Drag-selection overlay with two modes:
+/// 1. `beginFreeCapture`: cover all displays, select, annotate, and capture.
+/// 2. `begin(over:)`: cover one window and save its selected area as a normalized preset.
 final class RegionSelector {
     static let shared = RegionSelector()
-    /// 每块屏幕一个窗口。单个 NSWindow 横跨多块显示器时，只能拥有一个 Space、
-    /// screen 和 backingScaleFactor，在混合 Retina 双屏下会导致部分屏幕无法交互。
+    /// One window per display. A single NSWindow spanning displays has only one
+    /// Space, screen, and backing scale factor, which breaks interaction on mixed-DPI setups.
     private var overlays: [OverlayWindow] = []
 
     private init() {}
 
     var isActive: Bool { !overlays.isEmpty }
 
-    // MARK: - 全屏自由框选，可标注，回车抓图
+    // MARK: - Free-region capture with annotations
 
     func beginFreeCapture(completion: @escaping (CGImage?) -> Void) {
         guard overlays.isEmpty else { return }
@@ -23,8 +23,8 @@ final class RegionSelector {
             return
         }
 
-        // 热键触发后的第一个动作就是冻结各屏内容。TradingView 的日期提示等临时
-        // UI 常在应用失焦时收起，若等用户完成框选后再抓，已经无法包含它们。
+        // Freeze every display as the first action after the hot key. Transient UI
+        // such as TradingView date tooltips can dismiss on focus loss.
         let snapshots = screens.compactMap { screen -> (screen: NSScreen, image: CGImage)? in
             let fullRect = Geometry.screenLocalToCG(
                 CGRect(origin: .zero, size: screen.frame.size), on: screen
@@ -59,8 +59,8 @@ final class RegionSelector {
                     return
                 }
 
-                // 从热键瞬间冻结的底图裁剪，而不是现在再抓一次屏幕。这样即使临时
-                // 弹窗已在框选期间收起，最终图片仍保留它；ShotDesk 覆盖层也不可能入图。
+                // Crop the background frozen at hot-key time instead of capturing now.
+                // This preserves transient UI and guarantees the ShotDesk overlay is absent.
                 let pixelRect = Geometry.screenLocalToImagePixels(
                     rect, screenSize: screen.frame.size,
                     imageSize: CGSize(width: backdrop.width, height: backdrop.height)
@@ -72,21 +72,24 @@ final class RegionSelector {
                     completion(nil)
                     return
                 }
-                // 标注不在底图里，在这里按当前屏幕的实际倍率重画一遍合成上去。
+                // Annotations are absent from the background and are composited at
+                // the display's actual scale here.
                 completion(AnnotationRenderer.render(annotations, onto: shot, selection: rect))
             }
         }
 
-        // 主屏先获得键盘焦点；点击其他屏幕的覆盖层后会自然切换 key window。
+        // Give the primary-display overlay keyboard focus first; clicking another
+        // display's overlay naturally makes it key.
         if let primaryWindow = overlays.first {
             primaryWindow.makeKeyAndOrderFront(nil)
             primaryWindow.makeFirstResponder(primaryWindow.contentView)
         }
     }
 
-    // MARK: - 盖在指定窗口上，存区域预设
+    // MARK: - Save a crop preset over a specific window
 
-    /// cgBounds 是目标窗口的全局左上原点矩形；回调给出从窗口四边内缩的点数
+    /// `cgBounds` is the target's global top-left-origin rectangle. The callback
+    /// returns point insets from each window edge.
     func begin(over cgBounds: CGRect, completion: @escaping (CropInsets?) -> Void) {
         guard overlays.isEmpty else { return }
 
@@ -104,7 +107,7 @@ final class RegionSelector {
                 completion(nil)
                 return
             }
-            // SelectionView 是 flipped 的，rect 已是左上原点，直接换算成四边内缩点数
+            // SelectionView is flipped, so `rect` already uses a top-left origin.
             let insets = CropInsets(top: Double(rect.minY),
                                     left: Double(rect.minX),
                                     bottom: Double(frame.height - rect.maxY),
@@ -113,7 +116,7 @@ final class RegionSelector {
         }
     }
 
-    // MARK: - 覆盖层生命周期
+    // MARK: - Overlay lifecycle
 
     @discardableResult
     private func present(view: SelectionView, frame: CGRect, activate: Bool = true) -> OverlayWindow {
@@ -146,20 +149,22 @@ final class RegionSelector {
     }
 }
 
-/// 不激活 ShotDesk 的同时接收鼠标和键盘；避免临时菜单、popover 因原应用失焦而收起。
+/// Receives mouse and keyboard input without activating ShotDesk, preventing
+/// transient menus and popovers from dismissing when the source app loses focus.
 private final class OverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
 
-// MARK: - 框选 + 标注视图
+// MARK: - Selection and annotation view
 
 private final class SelectionView: NSView, NSTextFieldDelegate {
-    /// 回调带上标注数据；nil 表示取消
+    /// Returns annotation data; nil means cancellation.
     var onFinish: (((CGRect, [Annotation]))?) -> Void = { _ in }
     var showsCrosshair = false
     var allowsAnnotation = false
-    /// 热键按下瞬间的屏幕快照，既让用户看到冻结底图，也保留会立刻消失的临时 UI。
+    /// A snapshot from hot-key time. It shows a frozen background and preserves
+    /// transient UI that would otherwise disappear immediately.
     var backdrop: NSImage?
     var hint = "拖拽框选区域 · Esc 取消"
     var confirmHint = "回车截图 · 拖动边角调整 · 框外重新拖拽可重选 · Esc 取消"
@@ -182,10 +187,10 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
     private var gripStartRect: CGRect = .zero
     private var tracking: NSTrackingArea?
 
-    // 标注
+    // Annotations
     private var tool: AnnotationTool = .select
     private var annotations: [Annotation] = []
-    private var pending: Annotation?          // 正在拖的那个
+    private var pending: Annotation?          // Annotation currently being dragged.
     private var drawStart: CGPoint?
     private var textField: NSTextField?
     private var textAnchor: CGPoint?
@@ -201,7 +206,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
     private let handleSlop: CGFloat = 10
     private let minSide: CGFloat = 8
 
-    /// 翻转成左上原点：和 CGImage、CG 全局坐标一致，省掉一次换算
+    /// Use a top-left origin to align with CGImage and global CG coordinates.
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
@@ -217,7 +222,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         tracking = area
     }
 
-    // MARK: 命中判定
+    // MARK: - Hit testing
 
     private func handleRects(for rect: CGRect) -> [(Grip, CGRect)] {
         let h = handleSlop
@@ -237,7 +242,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
     }
 
     private func grip(at point: CGPoint) -> Grip {
-        // 只有选择工具才能调整选区，否则拖拽是在画标注
+        // Only the Select tool adjusts a selection; other tools draw annotations.
         guard phase == .adjusting, tool == .select, let rect = selection else { return .none }
         for (g, box) in handleRects(for: rect) where box.contains(point) { return g }
         return rect.contains(point) ? .move : .none
@@ -260,7 +265,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         }
     }
 
-    // MARK: 鼠标
+    // MARK: - Mouse handling
 
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
@@ -289,7 +294,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
             return
         }
 
-        // 标注工具：在选区内按下开始画
+        // An annotation tool starts drawing only inside the selection.
         if phase == .adjusting, tool != .select, let sel = selection, sel.contains(p) {
             if tool == .text {
                 beginTextEntry(at: p)
@@ -308,11 +313,12 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
             return
         }
 
-        // 标注工具激活时，框外点击不做任何事——否则手抖一下标注全没了，
-        // 要重框先切回选择工具
+        // Ignore clicks outside the selection while an annotation tool is active;
+        // switch back to Select before drawing a new selection.
         if phase == .adjusting, tool != .select { return }
 
-        // 框外按下：重新开始画选区（标注一并清掉，因为坐标基准变了）
+        // A click outside starts a new selection and clears annotations because
+        // their coordinate basis has changed.
         phase = .creating
         anchor = p
         selection = nil
@@ -360,7 +366,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         if drawStart != nil {
             drawStart = nil
             if let a = pending {
-                // 太短的箭头/太小的框当误触丢掉
+                // Discard accidental, extremely short arrows and tiny rectangles.
                 if isMeaningful(a) { annotations.append(a) }
                 pending = nil
             }
@@ -375,7 +381,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         }
 
         defer { anchor = nil }
-        // 太小的当误触：清掉选区回到初始态，而不是取消整个操作
+        // Treat an undersized selection as an accidental drag and return to idle.
         guard let rect = selection, rect.width > 4, rect.height > 4 else {
             selection = nil
             phase = .idle
@@ -394,7 +400,8 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// 按住的控制点决定改哪条边；拖过头会自动翻转，最后归位
+    /// The selected handle determines the edge to move. Crossing over flips the
+    /// rectangle and normalizes it afterward.
     private func resized(_ rect: CGRect, grip: Grip, by d: CGPoint) -> CGRect {
         var minX = rect.minX, maxX = rect.maxX
         var minY = rect.minY, maxY = rect.maxY
@@ -421,7 +428,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         return r.intersection(bounds)
     }
 
-    // MARK: 工具栏
+    // MARK: - Toolbar
 
     private func handleToolbar(_ item: ToolbarItem) {
         switch item {
@@ -433,7 +440,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-    /// 工具栏默认贴在选区下方，下方放不下就翻到上方，再放不下就贴进选区内
+    /// Prefer below the selection, then above it, then inside it when space is limited.
     private func layoutToolbar(for rect: CGRect) {
         guard allowsAnnotation, phase == .adjusting else {
             toolbarButtons = []
@@ -463,7 +470,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
 
     private var toolbarBar: CGRect = .zero
 
-    // MARK: 文本输入
+    // MARK: - Text input
 
     private func beginTextEntry(at p: CGPoint) {
         commitTextIfEditing()
@@ -490,7 +497,8 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         textAnchor = nil
         window?.makeFirstResponder(self)
         guard !s.isEmpty else { return }
-        // NSTextField 内部有约 2 点内边距，补偿一下让预览和成图对齐
+        // NSTextField has roughly a 2-point inner inset; compensate so preview and
+        // final output align.
         annotations.append(Annotation(kind: .text(s, at: CGPoint(x: at.x + 2, y: at.y + 4)),
                                       color: color, lineWidth: lineWidth, fontSize: fontSize))
         needsDisplay = true
@@ -517,7 +525,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         return false
     }
 
-    // MARK: 键盘
+    // MARK: - Keyboard handling
 
     override func cancelOperation(_ sender: Any?) {
         onFinish(nil)
@@ -532,9 +540,9 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         switch event.keyCode {
         case 53:                      // Esc
             onFinish(nil)
-        case 36, 76:                  // Return / 小键盘 Enter
+        case 36, 76:                  // Return / keypad Enter
             confirm()
-        case 123, 124, 125, 126:      // 方向键微调
+        case 123, 124, 125, 126:      // Arrow-key nudging
             nudge(keyCode: event.keyCode,
                   step: event.modifierFlags.contains(.shift) ? 10 : 1,
                   resize: event.modifierFlags.contains(.option))
@@ -542,7 +550,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         case 15, 19: selectTool(.rect)     // R / 2
         case 0, 20:  selectTool(.arrow)    // A / 3
         case 17, 21: selectTool(.text)     // T / 4
-        case 8:                            // C 换颜色
+        case 8:                            // C cycles color
             colorIndex = (colorIndex + 1) % palette.count
             needsDisplay = true
         default:
@@ -556,7 +564,8 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-    /// 默认整体移动；按住 Option 是改右下角，用于精修尺寸
+    /// Moves the entire selection by default; Option adjusts its bottom-right
+    /// corner for fine size changes.
     private func nudge(keyCode: UInt16, step: CGFloat, resize: Bool) {
         guard phase == .adjusting, var rect = selection else { return }
         var d = CGPoint.zero
@@ -584,7 +593,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
         onFinish((rect.intersection(bounds), annotations))
     }
 
-    // MARK: 绘制
+    // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current else { return }
@@ -599,7 +608,8 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
             return
         }
 
-        // 在压暗层上恢复冻结底图中的选区。没有冻结底图时才退回透明挖洞。
+        // Restore the selected region from the frozen background over the dimming
+        // layer. Fall back to a transparent cutout without a background.
         if let backdrop = backdrop {
             ctx.saveGraphicsState()
             NSBezierPath(rect: rect).addClip()
@@ -612,7 +622,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
             ctx.restoreGraphicsState()
         }
 
-        // 标注预览（最终成图由 AnnotationRenderer 按 Retina 倍率重画）
+        // Annotation preview; AnnotationRenderer redraws the final image at Retina scale.
         ctx.saveGraphicsState()
         NSBezierPath(rect: rect).addClip()
         for a in annotations { drawAnnotation(a) }
@@ -626,7 +636,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
 
         if phase == .adjusting, tool == .select { drawHandles(for: rect) }
 
-        // 标注实际抓到的像素数（Retina 屏是逻辑尺寸的 2 倍）
+        // Display the actual captured pixel size (twice the logical size on Retina).
         let scale = window?.backingScaleFactor ?? 1
         let size = "\(Int(rect.width * scale)) × \(Int(rect.height * scale))"
         let labelY = rect.minY > 26 ? rect.minY - 24 : rect.maxY + 4
@@ -685,7 +695,7 @@ private final class SelectionView: NSView, NSTextFieldDelegate {
 
         switch item {
         case .tool(.select):
-            // 简化的指针三角
+            // Simplified pointer triangle.
             let p = NSBezierPath()
             p.move(to: CGPoint(x: box.minX + 2, y: box.minY))
             p.line(to: CGPoint(x: box.minX + 2, y: box.maxY))

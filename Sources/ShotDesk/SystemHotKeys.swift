@@ -1,15 +1,16 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// RegisterEventHotKey 对系统已占用的组合也返回 noErr（实测 ⌘⇧3、⌥⌘D 都能"注册成功"），
-/// 注册结果完全不能用来判断冲突。真要知道有没有撞车，只能主动读系统的快捷键表比对。
+/// RegisterEventHotKey can return noErr even for combinations claimed by macOS,
+/// so registration alone cannot identify conflicts. Compare against the system
+/// shortcut table instead.
 enum SystemHotKeys {
     private static let cocoaCmd = 1 << 20
     private static let cocoaOpt = 1 << 19
     private static let cocoaShift = 1 << 17
     private static let cocoaCtrl = 1 << 18
 
-    /// 把 Carbon 修饰键位换算成系统快捷键表里用的 Cocoa 位
+    /// Converts Carbon modifier bits to the Cocoa bits used by the system shortcut table.
     private static func cocoaModifiers(_ spec: HotKeySpec) -> Int {
         var m = 0
         if spec.modifiers & UInt32(cmdKey) != 0 { m |= cocoaCmd }
@@ -19,7 +20,7 @@ enum SystemHotKeys {
         return m
     }
 
-    /// 系统里所有已启用的快捷键，(keyCode, cocoaModifiers)
+    /// All enabled system shortcuts as `(keyCode, cocoaModifiers)`.
     private static func enabledSystemHotKeys() -> [(Int, Int)] {
         guard let defaults = UserDefaults(suiteName: "com.apple.symbolichotkeys"),
               let all = defaults.dictionary(forKey: "AppleSymbolicHotKeys") else { return [] }
@@ -33,14 +34,14 @@ enum SystemHotKeys {
                   params.count >= 3,
                   let keyCode = params[1] as? Int,
                   let modifiers = params[2] as? Int else { continue }
-            // 只保留我们认识的四个修饰键位，系统表里还有别的杂位
+            // Retain only the four modifier bits recognized by this app.
             let cleaned = modifiers & (cocoaCmd | cocoaOpt | cocoaShift | cocoaCtrl)
             result.append((keyCode, cleaned))
         }
         return result
     }
 
-    /// 返回和系统快捷键撞车的目标
+    /// Returns targets whose shortcuts conflict with system shortcuts.
     static func conflicts(in targets: [CaptureTarget]) -> [(target: CaptureTarget, spec: HotKeySpec)] {
         let system = enabledSystemHotKeys()
         guard !system.isEmpty else { return [] }

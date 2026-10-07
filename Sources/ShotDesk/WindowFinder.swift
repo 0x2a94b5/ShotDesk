@@ -2,23 +2,23 @@ import AppKit
 
 struct WindowMatch {
     let windowID: CGWindowID
-    /// 全局左上原点坐标
+    /// Global top-left-origin coordinates.
     let bounds: CGRect
     let ownerPID: pid_t
     let ownerName: String
     let title: String?
-    /// 是否真的按 titleContains 命中；false 表示回退到了该应用的最前窗口
+    /// Whether `titleContains` matched. False means falling back to the app's
+    /// frontmost window.
     let titleMatched: Bool
 }
 
 enum WindowFinder {
-    /// 太小的一律当面板/弹窗排除
+    /// Treat windows smaller than this as panels or dialogs and exclude them.
     private static let minWidth: CGFloat = 200
     private static let minHeight: CGFloat = 150
 
-    /// 优先按 bundle identifier 匹配（最稳），否则按进程名。
-    /// 系统返回的 ownerName 可能带 ".app" 后缀（实测 Chrome 是 "Google Chrome.app"），
-    /// 所以进程名比较必须先归一化。
+    /// Prefer matching bundle identifiers; otherwise match process names. System
+    /// owner names can include a ".app" suffix, so normalize before comparison.
     private static func matches(target: CaptureTarget, pid: pid_t, ownerName: String) -> Bool {
         if let wantedBundle = target.bundleID, !wantedBundle.isEmpty {
             if let actual = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier {
@@ -44,7 +44,7 @@ enum WindowFinder {
         let selfPID = getpid()
         var candidates: [WindowMatch] = []
 
-        // 这个列表是前到后的顺序，所以第一个候选就是最靠前的窗口
+        // The list is front-to-back, so the first candidate is the frontmost window.
         for info in infos {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             let alpha = info[kCGWindowAlpha as String] as? Double ?? 1

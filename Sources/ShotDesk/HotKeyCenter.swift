@@ -1,8 +1,9 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Carbon 热键：不需要辅助功能权限，内核级派发，零轮询。
-/// 标记 deprecated 但在 macOS 12 上完全可用，也是多数截图工具的做法。
+/// Carbon hot keys require no Accessibility permission, use kernel-level
+/// dispatch, and need no polling. Although deprecated, they remain usable on
+/// macOS 12 and are common in screenshot tools.
 final class HotKeyCenter {
     static let shared = HotKeyCenter()
 
@@ -51,7 +52,7 @@ final class HotKeyCenter {
     }
 }
 
-/// 无捕获闭包才能当 C 函数指针用
+/// Only a non-capturing closure can be used as a C function pointer.
 private let hotKeyEventHandler: EventHandlerUPP = { _, event, _ in
     guard let event = event else { return noErr }
     var hotKeyID = EventHotKeyID()

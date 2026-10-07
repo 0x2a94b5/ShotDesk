@@ -1,6 +1,6 @@
 import Foundation
 
-/// SMAppService 要 macOS 13，这里用 LaunchAgent plist 实现开机启动
+/// SMAppService requires macOS 13, so launch-at-login uses a LaunchAgent plist.
 enum LoginItem {
     static let label = "com.shotdesk.app"
 

@@ -1,18 +1,18 @@
 import AppKit
 
-/// Chrome 窗口的标题只反映**当前激活的标签页**，Coinglass 在后台标签时
-/// 按标题根本匹配不到。所以抓图前先用 AppleScript 把目标标签切到前台。
+/// Chrome window titles only describe the active tab. Use AppleScript to bring
+/// a matching target tab forward before capture.
 enum BrowserTab {
     enum Outcome {
-        case switched          // 找到并切换成功
-        case notFound          // 所有窗口里都没有匹配的标签
-        case notAuthorized     // 用户拒绝了自动化权限
+        case switched          // Found and activated.
+        case notFound          // No matching tab in any window.
+        case notAuthorized     // The user denied Automation permission.
         case failed(String)
 
         var note: String? {
             switch self {
             case .switched: return nil
-            case .notFound: return nil   // 由调用方结合标题匹配结果给提示
+            case .notFound: return nil   // The caller combines this with title matching.
             case .notAuthorized:
                 return "没有控制浏览器的权限，无法自动切换标签页。请到 系统偏好设置 → 安全性与隐私 → 隐私 → 自动化 里勾选 ShotDesk 对浏览器的控制。"
             case .failed(let msg): return "切换标签页失败：\(msg)"
@@ -20,14 +20,14 @@ enum BrowserTab {
         }
     }
 
-    /// AppleScript 字符串字面量转义
+    /// Escapes an AppleScript string literal.
     private static func escape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
-    /// 在指定浏览器里找到标题或网址包含 needle 的标签页，激活它并把窗口提到最前。
-    /// AppleScript 的 contains 默认不区分大小写。
+    /// Finds a tab whose title or URL contains `needle`, activates it, and brings
+    /// its window forward. AppleScript `contains` is case-insensitive by default.
     static func activate(matching needle: String, bundleID: String) -> Outcome {
         let n = escape(needle)
         let source = """
@@ -56,7 +56,7 @@ enum BrowserTab {
 
         if let error = error {
             let code = error[NSAppleScript.errorNumber] as? Int ?? 0
-            // -1743 用户拒绝授权；-600 应用没运行
+            // -1743: Automation permission denied; -600: application not running.
             if code == -1743 { return .notAuthorized }
             let msg = error[NSAppleScript.errorMessage] as? String ?? "错误码 \(code)"
             return .failed(msg)

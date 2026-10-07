@@ -1,7 +1,7 @@
 import AppKit
 
 let app = NSApplication.shared
-// 无 Dock 图标、不参与 App 切换
+// No Dock icon and no participation in the application switcher.
 app.setActivationPolicy(.accessory)
 
 let delegate = AppDelegate()

@@ -1,7 +1,7 @@
 import AppKit
 
 enum Clipboard {
-    /// PNG + TIFF 双写：浏览器、Preview、各家 AI 输入框都能粘
+    /// Write both PNG and TIFF for compatibility with browsers, Preview, and AI inputs.
     static func put(_ image: CGImage) {
         let rep = NSBitmapImageRep(cgImage: image)
         let pb = NSPasteboard.general
@@ -14,7 +14,7 @@ enum Clipboard {
         }
     }
 
-    /// 可选存档：~/Pictures/ShotDesk/YYYY-MM-DD/<target>-HHmmss.png
+    /// Optional archive path: ~/Pictures/ShotDesk/YYYY-MM-DD/<target>-HHmmss.png.
     @discardableResult
     static func saveToDisk(_ image: CGImage, targetID: String, directory: String) -> URL? {
         let day = DateFormatter()
