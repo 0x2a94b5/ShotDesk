@@ -85,49 +85,43 @@ enum AnnotationRenderer {
         return rep.cgImage ?? image
     }
 
-    /// 长距离拖拽也只保留短尾部，使箭头更像“这里”的示意，而非连接两点的长线。
-    static func shortTailStart(from: CGPoint, to: CGPoint, lineWidth: CGFloat,
-                               maximumTailLength: CGFloat = 26) -> CGPoint {
+    /// 尖尾、渐宽、实心的示意箭头。尾端和箭头尖端严格跟随用户拖拽的两端，
+    /// 中间的箭身逐渐变宽，避免普通线箭头显得像连接线。
+    static func taperedArrowPoints(from: CGPoint, to: CGPoint, lineWidth: CGFloat) -> [CGPoint] {
         let dx = to.x - from.x, dy = to.y - from.y
         let length = hypot(dx, dy)
-        guard length > 1 else { return from }
+        guard length > 1 else { return [] }
 
-        let headLength = min(max(lineWidth * 4, 10), length * 0.5)
-        let maximumVisibleLength = maximumTailLength + headLength
-        guard length > maximumVisibleLength else { return from }
+        let unit = CGPoint(x: dx / length, y: dy / length)
+        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
+        let headLength = min(max(lineWidth * 10, 20), length * 0.35)
+        let headHalfWidth = max(lineWidth * 4.5, headLength * 0.45)
+        let neckHalfWidth = min(lineWidth * 1.25, headHalfWidth * 0.38)
+        let headBase = CGPoint(x: to.x - unit.x * headLength, y: to.y - unit.y * headLength)
 
-        let ratio = maximumVisibleLength / length
-        return CGPoint(x: to.x - dx * ratio, y: to.y - dy * ratio)
+        return [
+            from,
+            CGPoint(x: headBase.x + perpendicular.x * neckHalfWidth,
+                    y: headBase.y + perpendicular.y * neckHalfWidth),
+            CGPoint(x: headBase.x + perpendicular.x * headHalfWidth,
+                    y: headBase.y + perpendicular.y * headHalfWidth),
+            to,
+            CGPoint(x: headBase.x - perpendicular.x * headHalfWidth,
+                    y: headBase.y - perpendicular.y * headHalfWidth),
+            CGPoint(x: headBase.x - perpendicular.x * neckHalfWidth,
+                    y: headBase.y - perpendicular.y * neckHalfWidth)
+        ]
     }
 
-    /// 箭头 = 短尾部引导线 + 实心三角箭头。箭头大小跟着线宽走，细线配小头才协调。
+    /// 箭头 = 尖尾渐宽箭身 + 实心箭头，长度可随拖拽自由拉伸。
     static func drawArrow(from: CGPoint, to: CGPoint, lineWidth: CGFloat) {
-        let visibleFrom = shortTailStart(from: from, to: to, lineWidth: lineWidth)
-        let dx = to.x - visibleFrom.x, dy = to.y - visibleFrom.y
-        let length = sqrt(dx * dx + dy * dy)
-        guard length > 1 else { return }
+        let points = taperedArrowPoints(from: from, to: to, lineWidth: lineWidth)
+        guard let first = points.first else { return }
 
-        let angle = atan2(dy, dx)
-        let headLength = min(max(lineWidth * 4, 10), length * 0.5)
-        let headAngle: CGFloat = .pi / 7
-
-        // 线画到箭头根部就停，避免线头从三角形里透出来
-        let shaftEnd = CGPoint(x: to.x - cos(angle) * headLength * 0.85,
-                               y: to.y - sin(angle) * headLength * 0.85)
-        let shaft = NSBezierPath()
-        shaft.lineWidth = lineWidth
-        shaft.lineCapStyle = .round
-        shaft.move(to: visibleFrom)
-        shaft.line(to: shaftEnd)
-        shaft.stroke()
-
-        let head = NSBezierPath()
-        head.move(to: to)
-        head.line(to: CGPoint(x: to.x - cos(angle - headAngle) * headLength,
-                              y: to.y - sin(angle - headAngle) * headLength))
-        head.line(to: CGPoint(x: to.x - cos(angle + headAngle) * headLength,
-                              y: to.y - sin(angle + headAngle) * headLength))
-        head.close()
-        head.fill()
+        let arrow = NSBezierPath()
+        arrow.move(to: first)
+        for point in points.dropFirst() { arrow.line(to: point) }
+        arrow.close()
+        arrow.fill()
     }
 }

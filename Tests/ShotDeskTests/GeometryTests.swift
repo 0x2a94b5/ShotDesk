@@ -63,21 +63,21 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(result, CGRect(x: 1900, y: 1000, width: 20, height: 80))
     }
 
-    func testLongArrowUsesShortTailNearItsTip() {
-        let result = AnnotationRenderer.shortTailStart(
+    func testTaperedArrowKeepsTheUserDrawnLength() {
+        let points = AnnotationRenderer.taperedArrowPoints(
             from: CGPoint(x: 0, y: 0), to: CGPoint(x: 100, y: 0), lineWidth: 3
         )
 
-        XCTAssertEqual(result.x, 62, accuracy: 0.001)
-        XCTAssertEqual(result.y, 0, accuracy: 0.001)
+        XCTAssertEqual(points.first, CGPoint(x: 0, y: 0))
+        XCTAssertEqual(points[3], CGPoint(x: 100, y: 0))
     }
 
-    func testShortArrowKeepsTheUserDrawnTail() {
-        let start = CGPoint(x: 10, y: 10)
-        let result = AnnotationRenderer.shortTailStart(
-            from: start, to: CGPoint(x: 24, y: 10), lineWidth: 3
+    func testTaperedArrowUsesSymmetricHead() {
+        let points = AnnotationRenderer.taperedArrowPoints(
+            from: CGPoint(x: 0, y: 0), to: CGPoint(x: 100, y: 0), lineWidth: 3
         )
 
-        XCTAssertEqual(result, start)
+        XCTAssertEqual(points[2].x, points[4].x, accuracy: 0.001)
+        XCTAssertEqual(points[2].y, -points[4].y, accuracy: 0.001)
     }
 }
