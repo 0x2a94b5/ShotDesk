@@ -8,52 +8,58 @@ final class RegionSelector {
     /// 每块屏幕一个窗口。单个 NSWindow 横跨多块显示器时，只能拥有一个 Space、
     /// screen 和 backingScaleFactor，在混合 Retina 双屏下会导致部分屏幕无法交互。
     private var overlays: [OverlayWindow] = []
+    /// 覆盖层隐藏后到系统完成合成前，禁止再发起一次框选；否则新覆盖层可能进入上一张截图。
+    private var isFinalizingFreeCapture = false
 
     private init() {}
 
-    var isActive: Bool { !overlays.isEmpty }
+    var isActive: Bool { !overlays.isEmpty || isFinalizingFreeCapture }
 
     // MARK: - 全屏自由框选，可标注，回车抓图
 
     func beginFreeCapture(completion: @escaping (CGImage?) -> Void) {
-        guard overlays.isEmpty else { return }
+        guard overlays.isEmpty, !isFinalizingFreeCapture else { return }
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
             completion(nil)
             return
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-
         for screen in screens {
             let view = SelectionView(frame: CGRect(origin: .zero, size: screen.frame.size))
             view.showsCrosshair = true
             view.allowsAnnotation = true
-            let window = present(view: view, frame: screen.frame, activate: false)
+            _ = present(view: view, frame: screen.frame, activate: false)
 
-            view.onFinish = { [weak self, weak window] result in
+            view.onFinish = { [weak self] result in
                 guard let self = self else { return }
-                guard let (rect, annotations) = result, let window = window else {
+                guard let (rect, annotations) = result else {
                     self.dismiss()
                     completion(nil)
                     return
                 }
 
-                // 必须在关掉覆盖层**之前**抓：optionOnScreenBelowWindow 只抓我们这层
-                // 底下的内容，压暗、选框、工具栏都不会进到图里。
+                // 先隐藏非激活覆盖层，并等下一次界面合成再抓屏幕。
+                // 这样右键菜单、下拉框和 popover 不会因 ShotDesk 抢焦点而关闭，也能
+                // 出现在成图中；同时 ShotDesk 自己的压暗层、选框和工具栏不会进图。
                 let cgRect = Geometry.screenLocalToCG(rect, on: screen).integral
-                let shot = CGWindowListCreateImage(cgRect,
-                                                   .optionOnScreenBelowWindow,
-                                                   CGWindowID(window.windowNumber),
-                                                   [.bestResolution])
+                self.isFinalizingFreeCapture = true
                 self.dismiss()
 
-                guard let shot = shot else {
-                    completion(nil)
-                    return
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    let shot = CGWindowListCreateImage(cgRect,
+                                                       .optionOnScreenOnly,
+                                                       kCGNullWindowID,
+                                                       [.bestResolution])
+                    self.isFinalizingFreeCapture = false
+
+                    guard let shot = shot else {
+                        completion(nil)
+                        return
+                    }
+                    // 标注不在底图里，在这里按当前屏幕的实际倍率重画一遍合成上去。
+                    completion(AnnotationRenderer.render(annotations, onto: shot, selection: rect))
                 }
-                // 标注没进截图，在这里按当前屏幕的实际倍率重画一遍合成上去。
-                completion(AnnotationRenderer.render(annotations, onto: shot, selection: rect))
             }
         }
 
@@ -97,7 +103,7 @@ final class RegionSelector {
 
     @discardableResult
     private func present(view: SelectionView, frame: CGRect, activate: Bool = true) -> OverlayWindow {
-        let window = OverlayWindow(contentRect: frame, styleMask: .borderless,
+        let window = OverlayWindow(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
                                    backing: .buffered, defer: false)
         window.level = .screenSaver
         window.isOpaque = false
@@ -105,13 +111,14 @@ final class RegionSelector {
         window.hasShadow = false
         window.ignoresMouseEvents = false
         window.acceptsMouseMovedEvents = true
+        window.hidesOnDeactivate = false
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.contentView = view
 
         overlays.append(window)
         if activate {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            window.makeKey()
             window.makeFirstResponder(view)
         } else {
             window.orderFrontRegardless()
@@ -125,7 +132,8 @@ final class RegionSelector {
     }
 }
 
-private final class OverlayWindow: NSWindow {
+/// 不激活 ShotDesk 的同时接收鼠标和键盘；避免临时菜单、popover 因原应用失焦而收起。
+private final class OverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
